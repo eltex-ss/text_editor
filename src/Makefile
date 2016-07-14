@@ -4,7 +4,7 @@ target = text_editor
 
 CFLAGS = -Wall -pedantic -ansi -g
 
-LDLIBS = -lncurses
+LDLIBS = -lncurses -lform
 
 all : $(target) reloc
 

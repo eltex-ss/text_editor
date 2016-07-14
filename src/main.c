@@ -4,17 +4,25 @@
 #include <stdlib.h>
 #include <curses.h>
 #include <ctype.h>
-#include <ncurses/form.h>
 
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include "list.h"
+
 #define TEXT_WINDOW_HEIGHT 21
 #define TEXT_WINDOW_WIDTH 80
 #define MENU_WINDOW_HEIGHT 3
 #define MENU_WINDOW_WIDTH 80
+
+enum Direction {
+  UP,
+  DOWN,
+  RIGHT,
+  LEFT
+};
 
 static char file_name[100];
 
@@ -55,7 +63,20 @@ WINDOW *CreateMenu(void)
   return menu;
 }
 
-int OpenFile(WINDOW *text_window, FORM *text_form)
+void ClearWindow(WINDOW *text_window)
+{
+  int max_x,
+      max_y,
+      current_pos;
+  char empty_line[79];
+
+  getmaxyx(text_window, max_y, max_x);
+  for (current_pos = max_y; current_pos > -1; --current_pos)
+    wprintw(text_window, "%s", empty_line);
+  wmove(text_window, 0, 0);
+}
+
+int OpenFile(WINDOW *text_window)
 {
   WINDOW *open_window;
   int ch;
@@ -90,7 +111,7 @@ int OpenFile(WINDOW *text_window, FORM *text_form)
     char internal_data[30000]; /*  30 Kb */
     int bytes_read;
 
-    form_driver(text_form, REQ_CLR_FIELD);
+    ClearWindow(text_window);
     while ((bytes_read = read(fd, internal_data, 30000)) > 0) {
       mvwprintw(text_window, current_y, current_x, "%s", internal_data);
       current_x = (current_x + bytes_read) % 16;
@@ -110,6 +131,74 @@ int OpenFile(WINDOW *text_window, FORM *text_form)
 
   return -error_found;
 }
+/*
+void SaveFile(WINDOW *text_window)
+{
+  char line[79];
+  
+  
+}
+*/
+
+void GetNewVerticalPos(WINDOW *text_window, enum Direction dir, int *y, int *x,
+                       int delta)
+{
+  char next_line[TEXT_WINDOW_WIDTH - 1];
+  int key_pos = 0;
+  int current_symbol_pos = 0;
+  int current_x = *x;
+  int current_y = *y;
+
+  wmove(text_window, current_y + delta, current_x);
+  winnstr(text_window, next_line, TEXT_WINDOW_WIDTH - 1); 
+  wmove(text_window, current_y - delta, current_x);
+  for (current_symbol_pos = TEXT_WINDOW_WIDTH - 2;
+      current_symbol_pos > -1; --current_symbol_pos) {
+    if (next_line[current_symbol_pos] != '\0' &&
+        next_line[current_symbol_pos] != '\n') {
+      key_pos = current_symbol_pos;
+      break;
+    }
+  }
+  if (key_pos > current_x)
+    current_x = key_pos;
+
+  *y = current_y;
+  *x = current_x;
+}
+
+void GetSymbol(WINDOW *text_window, enum Direction dir, int *y, int *x)
+{
+  int current_x = *x;
+  int current_y = *y;
+  int delta = 0;
+
+  if (dir == UP)
+    delta = -1;
+  else if (dir == DOWN)
+    delta = 1;
+
+  switch (dir) {
+    case UP:
+    case DOWN:
+      GetNewVerticalPos(text_window, dir, &current_y, &current_x, delta);
+      break;
+    case LEFT:
+      if (current_x == 0) {
+        current_x = TEXT_WINDOW_WIDTH - 2;
+        --current_y;
+      }
+      break;
+    case RIGHT:
+      if (current_x == TEXT_WINDOW_WIDTH - 1) {
+        current_x = 0;
+        ++current_y;
+      }
+      break;
+  }
+  *y = current_y;
+  *x = current_x;
+}
 
 int main(void)
 {
@@ -117,15 +206,12 @@ int main(void)
   WINDOW *text_window,
          *command_field,
          *text_subwindow;
-  FORM *text_form;
-  FIELD *text_fields[2];
   unsigned int symbol;
   int current_x,
       current_y;
   int need_exit = 0;
   int last_y,
       last_x;
-  char line[TEXT_WINDOW_WIDTH - 1];
   
   initialize();
   current_x = 0;
@@ -140,50 +226,31 @@ int main(void)
   text_subwindow = subwin(text_window, TEXT_WINDOW_HEIGHT - 2,
                           TEXT_WINDOW_WIDTH - 2, 1, 1);
   keypad(text_subwindow, 1);
-
-  text_fields[0] = new_field(TEXT_WINDOW_HEIGHT - 2, TEXT_WINDOW_WIDTH - 2,
-                             0, 0, 0, 0);
-  text_fields[1] = NULL;
-  field_opts_off(text_fields[0], O_STATIC);
-  text_form = new_form(text_fields);
-  
-  set_form_win(text_form, text_window);
-  set_form_sub(text_form, text_subwindow);
-  
   box(text_window, 0, 0);
   wrefresh(text_window);
-  refresh();
-
-  post_form(text_form);
-  wrefresh(text_window);
-
   command_field = CreateMenu();
-
   refresh();
 
   /* ====================================== */
   /*                                        */
   /*  Logic                                 */
   /*                                        */
-  wmove(text_window, 1, 1);
+  wmove(text_subwindow, 0, 0);
   while (1) {
     int key_pos = 0;
     
     symbol = wgetch(text_subwindow); 
     if (isalpha(symbol)) {
-      form_driver(text_form, symbol);
-      getyx(text_window, current_y, current_x);
-      
+      waddch(text_subwindow, symbol);
     } else {
       switch (symbol) {
         case KEY_F(2):
-          if (OpenFile(text_subwindow, text_form) != -1)
-            form_driver(text_form, REQ_BEG_FIELD);
+          if (OpenFile(text_subwindow) != -1)
+            wmove(text_subwindow, 0, 0);
           wrefresh(text_window);
           break;
         case KEY_F(3):
           /*  TODO: save = create subwin, read filename, write and close */
-          form_driver(text_form, REQ_INS_CHAR);
           break;
         case KEY_F(4):
           /*  TODO: find */
@@ -193,63 +260,34 @@ int main(void)
           need_exit = 1;
           break;
         case KEY_LEFT:
-          form_driver(text_form, REQ_PREV_CHAR);
-            --current_x;
+          
           break;
         case KEY_RIGHT:
-          if (current_x == last_x) {
-            
-          }
-          form_driver(text_form, REQ_NEXT_CHAR);
-            ++current_x;
           break;
         case KEY_UP:
-          getyx(text_subwindow, current_y, current_x);
-          form_driver(text_form, REQ_PREV_LINE);
-          winnstr(text_subwindow, line, 78);
-          key_pos = 0;
-          for (int i = TEXT_WINDOW_WIDTH - 2; i > -1; --i) {
-            if (line[i] != ' ') {
-              key_pos = i;
-              break;
-            }
-          }
-          if (current_y < key_pos) {
-            key_pos = current_y;
-          }
-          form_driver(text_form, REQ_BEG_LINE);
-          for (int i = 0; i < key_pos; ++i)
-            form_driver(text_form, REQ_NEXT_CHAR);
-            
-          /* if (current_y != minY)
-            --current_y; */
           break;
         case KEY_DOWN:
-          form_driver(text_form, REQ_NEXT_LINE);
-          /* if (current_y != maxY - 1)
-            ++current_y; */
           break;
         case KEY_BACKSPACE:
-          form_driver(text_form, REQ_DEL_PREV);
+          /* form_driver(text_form, REQ_DEL_PREV); */
           break;
         case '\n':
-          form_driver(text_form, REQ_NEW_LINE);
+          /* form_driver(text_form, REQ_NEW_LINE); */
           ++current_y;
           current_x = 0;
           break;
         default:
-          form_driver(text_form, symbol);
+          waddch(text_window, symbol);
+          /* form_driver(text_form, symbol); */
       }
     }
     if (need_exit)
       break;
   }
 
-  unpost_form(text_form);
-  free_form(text_form);
-  free_field(text_fields[0]);
   delwin(command_field);
-
+  delwin(text_subwindow);
+  delwin(text_window);
   endwin();
 
   return 0;

@@ -2,7 +2,7 @@ objects = main.o
 
 target = text_editor
 
-CFLAGS = -Wall -pedantic -ansi -g
+CFLAGS = -Wall -pedantic -ansi -g -std=c99
 
 LDLIBS = -lncurses -lform
 

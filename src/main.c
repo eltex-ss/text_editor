@@ -99,9 +99,6 @@ int OpenFile(WINDOW *text_window, FORM *text_form)
     if (bytes_read == -1) { 
       error_found = 1;
     }
-    else {
-
-    }
     close(fd);
   }
   
@@ -109,7 +106,7 @@ int OpenFile(WINDOW *text_window, FORM *text_form)
     wgetch(open_window);
     curs_set(1);
   }
-  delwin(open_window);  
+  delwin(open_window); 
 
   return -error_found;
 }
@@ -128,12 +125,17 @@ int main(void)
   int need_exit = 0;
   int last_y,
       last_x;
+  char line[TEXT_WINDOW_WIDTH - 1];
   
   initialize();
   current_x = 0;
   current_y = 0;
   last_y = 0;
 
+  /* ====================================== */
+  /*                                        */
+  /*  Creating all windows                  */
+  /*                                        */
   text_window = newwin(TEXT_WINDOW_HEIGHT, TEXT_WINDOW_WIDTH, 0, 0);
   text_subwindow = subwin(text_window, TEXT_WINDOW_HEIGHT - 2,
                           TEXT_WINDOW_WIDTH - 2, 1, 1);
@@ -159,8 +161,14 @@ int main(void)
 
   refresh();
 
+  /* ====================================== */
+  /*                                        */
+  /*  Logic                                 */
+  /*                                        */
   wmove(text_window, 1, 1);
   while (1) {
+    int key_pos = 0;
+    
     symbol = wgetch(text_subwindow); 
     if (isalpha(symbol)) {
       form_driver(text_form, symbol);
@@ -175,6 +183,7 @@ int main(void)
           break;
         case KEY_F(3):
           /*  TODO: save = create subwin, read filename, write and close */
+          form_driver(text_form, REQ_INS_CHAR);
           break;
         case KEY_F(4):
           /*  TODO: find */
@@ -195,7 +204,23 @@ int main(void)
             ++current_x;
           break;
         case KEY_UP:
+          getyx(text_subwindow, current_y, current_x);
           form_driver(text_form, REQ_PREV_LINE);
+          winnstr(text_subwindow, line, 78);
+          key_pos = 0;
+          for (int i = TEXT_WINDOW_WIDTH - 2; i > -1; --i) {
+            if (line[i] != ' ') {
+              key_pos = i;
+              break;
+            }
+          }
+          if (current_y < key_pos) {
+            key_pos = current_y;
+          }
+          form_driver(text_form, REQ_BEG_LINE);
+          for (int i = 0; i < key_pos; ++i)
+            form_driver(text_form, REQ_NEXT_CHAR);
+            
           /* if (current_y != minY)
             --current_y; */
           break;

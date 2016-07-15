@@ -12,7 +12,7 @@ struct List* CreateList(void)
 }
 
 /*  Delete the linked list */
-void removeList(struct List *list)
+void RemoveList(struct List *list)
 {
   ClearList(list);
   free(list);

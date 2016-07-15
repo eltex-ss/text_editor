@@ -5,6 +5,8 @@
 #include <curses.h>
 #include <ctype.h>
 
+#include <netinet/in.h>
+
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -25,6 +27,7 @@ enum Direction {
 };
 
 static char file_name[100];
+struct List *lines;
 
 void SigWinch(int signo)
 {
@@ -43,6 +46,8 @@ void initialize(void)
   curs_set(1);
   keypad(stdscr, 1);
   refresh();
+
+  lines = CreateList();
 }
 
 WINDOW *CreateWindow(int h, int w, int start_y, int start_x)
@@ -63,46 +68,36 @@ WINDOW *CreateMenu(void)
   return menu;
 }
 
-void ClearWindow(WINDOW *text_window)
-{
-  int max_x,
-      max_y,
-      current_pos;
-  char empty_line[79];
-
-  getmaxyx(text_window, max_y, max_x);
-  for (current_pos = max_y; current_pos > -1; --current_pos)
-    wprintw(text_window, "%s", empty_line);
-  wmove(text_window, 0, 0);
-}
-
 int OpenFile(WINDOW *text_window)
 {
-  WINDOW *open_window;
-  int ch;
+  WINDOW *open_window = NULL;
+  WINDOW *open_subwindow = NULL;
+  int ch = 0;
   int length = 0;
-  int fd;
+  int fd = 0;
   int current_x = 0,
       current_y = 0;
   int error_found = 0;
 
   /*  Creating the window*/
   open_window = newwin(10, 30, 6, 15);
+  open_subwindow = derwin(open_window, 8, 28, 1, 1);
   box(open_window, 0, 0);
 
   wrefresh(open_window);
+  wrefresh(open_subwindow);
 
   /*  Logic */
-  mvwprintw(open_window, 1, 1, "Please, write filename");
-  wmove(open_window, 2, 1);
-  while ((ch = wgetch(open_window)) != '\n') {
-    waddch(open_window, ch);
+  mvwprintw(open_subwindow, 0, 0, "Please, write filename");
+  wmove(open_subwindow, 1, 0);
+  while ((ch = wgetch(open_subwindow)) != '\n') {
+    waddch(open_subwindow, ch);
     file_name[length++] = ch;
   }
   file_name[length] = '\0';
   if ((fd = open(file_name, O_RDWR, 0666)) == -1) {
-    mvwprintw(open_window, 1, 1, "Can't open the file!!!");
-    mvwprintw(open_window, 2, 1, "Press any key to continue");
+    mvwprintw(open_subwindow, 0, 0, "Can't open the file!!!");
+    mvwprintw(open_subwindow, 1, 0, "Press any key to continue");
     curs_set(0);
     error_found = 1;
     file_name[0] = '\0';
@@ -111,7 +106,7 @@ int OpenFile(WINDOW *text_window)
     char internal_data[30000]; /*  30 Kb */
     int bytes_read;
 
-    ClearWindow(text_window);
+    wclear(text_window);
     while ((bytes_read = read(fd, internal_data, 30000)) > 0) {
       mvwprintw(text_window, current_y, current_x, "%s", internal_data);
       current_x = (current_x + bytes_read) % 16;
@@ -124,23 +119,83 @@ int OpenFile(WINDOW *text_window)
   }
   
   if (error_found) {
-    wgetch(open_window);
-    curs_set(1);
+    wgetch(open_subwindow);
+    /* wmove(text_window, 0, 0);
+    curs_set(1); */
   }
-  delwin(open_window); 
+  delwin(open_subwindow);
+  delwin(open_window);
 
   return -error_found;
 }
-/*
-void SaveFile(WINDOW *text_window)
+
+int SaveFile(WINDOW *text_window, int max_y)
 {
+  WINDOW *save_window,
+         *save_subwindow;
   char line[79];
-  
+  char file_name[50];
+  char ch;
+  int current_pos = 0;
+  int current_line = 0;
+  int fd = 0;
+  int length = 0;
+  int error_found = 0;
+  int current_x,
+      current_y;
+
+  getyx(text_window, current_y, current_x);
+
+  save_window = newwin(10, 30, 6, 15);
+  save_subwindow = derwin(save_window, 8, 28, 1, 1);
+  box(save_subwindow, 0, 0);
+
+  wrefresh(save_window);
+  wrefresh(save_subwindow);
+
+  /*  Logic */
+  mvwprintw(save_subwindow, 0, 0, "Please, write filename");
+  wmove(save_subwindow, 1, 0);
+
+  while ((ch = wgetch(save_subwindow)) != '\n') {
+    waddch(save_subwindow, ch);
+    file_name[length++] = ch;
+  }
+  file_name[length] = '\0';
+  if ((fd = open(file_name, O_WRONLY, 0666)) == -1) { 
+    mvwprintw(save_subwindow, 0, 0, "Can't open the file!!!");
+    mvwprintw(save_subwindow, 1, 0, "Press any key to continue");
+    curs_set(0);
+    error_found = 1;
+    file_name[0] = '\0';
+  }
+  else {
+    for (current_line = 0; current_line < max_y; ++current_line) {
+      mvwinnstr(text_window, current_line, 0, line, 79);
+      if (write(fd, line, 79) == -1) { 
+        mvwprintw(save_subwindow, 0, 0, "Can't write into the file!!!");
+        mvwprintw(save_subwindow, 1, 0, "Press any key to continue");
+        curs_set(0);
+        error_found = 1;
+      }
+    }
+
+    close(fd);
+  }
+  if (error_found) {
+    wgetch(save_subwindow);
+    curs_set(1);
+  }
+  wmove(text_window, current_y, current_x);
+  delwin(save_subwindow);
+  delwin(save_window);
+
+  return -error_found;
   
 }
-*/
 
-void GetNewVerticalPos(WINDOW *text_window, enum Direction dir, int *y, int *x,
+
+void GetNextVerticalPos(WINDOW *text_window, enum Direction dir, int *y, int *x,
                        int delta)
 {
   char next_line[TEXT_WINDOW_WIDTH - 1];
@@ -160,44 +215,58 @@ void GetNewVerticalPos(WINDOW *text_window, enum Direction dir, int *y, int *x,
       break;
     }
   }
-  if (key_pos > current_x)
+  if (key_pos < current_x)
     current_x = key_pos;
 
-  *y = current_y;
+  *y = current_y + delta;
   *x = current_x;
 }
 
-void GetSymbol(WINDOW *text_window, enum Direction dir, int *y, int *x)
+void GetNextSymbol(WINDOW *text_window, enum Direction dir, int *y, int *x)
 {
-  int current_x = *x;
-  int current_y = *y;
+  int current_x,
+      current_y;
   int delta = 0;
 
-  if (dir == UP)
-    delta = -1;
-  else if (dir == DOWN)
-    delta = 1;
-
+  getyx(text_window, current_y, current_x);
   switch (dir) {
     case UP:
     case DOWN:
-      GetNewVerticalPos(text_window, dir, &current_y, &current_x, delta);
+      if (dir == UP)
+        delta = -1;
+      else if (dir == DOWN)
+        delta = 1;
+      GetNextVerticalPos(text_window, dir, &current_y, &current_x, delta);
       break;
     case LEFT:
       if (current_x == 0) {
         current_x = TEXT_WINDOW_WIDTH - 2;
         --current_y;
+      } else {
+        --current_x;
       }
       break;
     case RIGHT:
       if (current_x == TEXT_WINDOW_WIDTH - 1) {
         current_x = 0;
         ++current_y;
+      } else {
+        ++current_x;
       }
       break;
   }
   *y = current_y;
   *x = current_x;
+}
+
+void RemoveChar(WINDOW *text_window)
+{
+  int current_x,
+      current_y;
+
+  getyx(text_window, current_y, current_x);
+  if (current_x != 0)
+    mvwdelch(text_window, current_y, current_x - 1);
 }
 
 int main(void)
@@ -223,9 +292,14 @@ int main(void)
   /*  Creating all windows                  */
   /*                                        */
   text_window = newwin(TEXT_WINDOW_HEIGHT, TEXT_WINDOW_WIDTH, 0, 0);
-  text_subwindow = subwin(text_window, TEXT_WINDOW_HEIGHT - 2,
-                          TEXT_WINDOW_WIDTH - 2, 1, 1);
+  text_subwindow = subwin(text_window, 10,
+                          10, 1, 1);
+  /* text_subwindow = subwin(text_window, TEXT_WINDOW_HEIGHT - 2,
+                          TEXT_WINDOW_WIDTH - 2, 1, 1); */
   keypad(text_subwindow, 1);
+  scrollok(text_subwindow, 1);
+  idlok(text_subwindow, 1);
+
   box(text_window, 0, 0);
   wrefresh(text_window);
   command_field = CreateMenu();
@@ -237,8 +311,6 @@ int main(void)
   /*                                        */
   wmove(text_subwindow, 0, 0);
   while (1) {
-    int key_pos = 0;
-    
     symbol = wgetch(text_subwindow); 
     if (isalpha(symbol)) {
       waddch(text_subwindow, symbol);
@@ -247,10 +319,12 @@ int main(void)
         case KEY_F(2):
           if (OpenFile(text_subwindow) != -1)
             wmove(text_subwindow, 0, 0);
-          wrefresh(text_window);
+          redrawwin(text_subwindow);
+          wmove(text_subwindow, 0, 0);
+          curs_set(1);
           break;
         case KEY_F(3):
-          /*  TODO: save = create subwin, read filename, write and close */
+          SaveFile(text_subwindow, last_y);
           break;
         case KEY_F(4):
           /*  TODO: find */
@@ -260,25 +334,30 @@ int main(void)
           need_exit = 1;
           break;
         case KEY_LEFT:
-          
+          GetNextSymbol(text_subwindow, LEFT, &current_y, &current_x);
+          wmove(text_subwindow, current_y, current_x);
           break;
         case KEY_RIGHT:
+          GetNextSymbol(text_subwindow, RIGHT, &current_y, &current_x);
+          wmove(text_subwindow, current_y, current_x);
           break;
         case KEY_UP:
+          GetNextSymbol(text_subwindow, UP, &current_y, &current_x);
+          wmove(text_subwindow, current_y, current_x);
           break;
         case KEY_DOWN:
+          GetNextSymbol(text_subwindow, DOWN, &current_y, &current_x);
+          wmove(text_subwindow, current_y, current_x);
           break;
         case KEY_BACKSPACE:
-          /* form_driver(text_form, REQ_DEL_PREV); */
+          RemoveChar(text_subwindow);
           break;
         case '\n':
-          /* form_driver(text_form, REQ_NEW_LINE); */
           ++current_y;
+          ++last_y;
           current_x = 0;
-          break;
         default:
-          waddch(text_window, symbol);
-          /* form_driver(text_form, symbol); */
+          waddch(text_subwindow, symbol);
       }
     }
     if (need_exit)
@@ -288,6 +367,7 @@ int main(void)
   delwin(command_field);
   delwin(text_subwindow);
   delwin(text_window);
+  RemoveList(lines);
   endwin();
 
   return 0;

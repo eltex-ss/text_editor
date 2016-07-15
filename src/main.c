@@ -5,8 +5,6 @@
 #include <curses.h>
 #include <ctype.h>
 
-#include <netinet/in.h>
-
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -72,7 +70,7 @@ int OpenFile(WINDOW *text_window)
 {
   WINDOW *open_window = NULL;
   WINDOW *open_subwindow = NULL;
-  int ch = 0;
+  unsigned int ch = 0;
   int length = 0;
   int fd = 0;
   int current_x = 0,
@@ -144,7 +142,7 @@ int SaveFile(WINDOW *text_window, int max_y)
          *save_subwindow;
   char line[79];
   char file_name[50];
-  char ch;
+  unsigned int ch;
   int current_pos = 0;
   int current_line = 0;
   int fd = 0;
@@ -173,12 +171,15 @@ int SaveFile(WINDOW *text_window, int max_y)
     } else if (isalpha(ch)) {
       waddch(save_subwindow, ch);
       file_name[length++] = ch;
-    } else if (ch == '\a') {
+    } else if (ch == KEY_BACKSPACE) {
       /*  There is have to be (ch == KEY_BACKSPACE), but
        *  it's now working and I don't know why. It works
        *  in OpenFile, but not here*/
       --length;
       mvwdelch(save_subwindow, 1, length);
+    } else if (ch == 27) {
+      error_found = 0;
+      goto save_exit;
     }
   }
   file_name[length] = '\0';
@@ -209,6 +210,7 @@ int SaveFile(WINDOW *text_window, int max_y)
     wgetch(save_subwindow);
     curs_set(1);
   }
+save_exit:
   delwin(save_subwindow);
   delwin(save_window);
 
@@ -237,9 +239,8 @@ void GetNextVerticalPos(WINDOW *text_window, enum Direction dir, int *y, int *x,
   }
   if (key_pos < current_x)
     current_x = key_pos;
-
-  *y = current_y + delta;
-  *x = current_x;
+  if (!((dir == UP && current_y == 0) || (dir == DOWN && current_y == 18)))
+    *y = current_y + delta;
 }
 
 void GetNextSymbol(WINDOW *text_window, enum Direction dir, int *y, int *x)
@@ -279,6 +280,19 @@ void GetNextSymbol(WINDOW *text_window, enum Direction dir, int *y, int *x)
   *x = current_x;
 }
 
+void InsertChar(WINDOW *text_window, char symbol)
+{
+  char line[79];
+  int current_x,
+      current_y;
+
+  winnstr(text_window, line, 79);
+  waddch(text_window, symbol);
+  getyx(text_window, current_y, current_x); 
+  wprintw(text_window, "%s", line);
+  wmove(text_window, current_y, current_x);
+}
+
 void RemoveChar(WINDOW *text_window)
 {
   int current_x,
@@ -304,7 +318,8 @@ int main(void)
   int need_exit = 0;
   int last_y,
       last_x;
-  
+  char line[79];
+
   initialize();
   current_x = 0;
   current_y = 0;
@@ -336,8 +351,7 @@ int main(void)
   while (1) {
     symbol = wgetch(text_subwindow); 
     if (isalpha(symbol)) {
-      waddch(text_subwindow, symbol);
-      getyx(text_subwindow, current_y, current_x);
+      InsertChar(text_subwindow, symbol); 
       if (current_x == 0)
         ++last_y;
     } else {
